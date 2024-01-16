@@ -70,6 +70,31 @@ function hamtaEnskildAktivitet(string $id): Response {
  * @return Response
  */
 function sparaNyAktivitet(string $aktivitet): Response {
+    //kontrollera indata - rensa bort onödiga tecken
+    $kontrolleraAktivitet=filter_var($aktivitet, FILTER_SANITIZE_ENCODED);
+
+    //koppla mot databas
+    $db=connectDb();
+    //exkevera frågan
+    $stmt=$db->prepare("INSERT INTO aktiviteter (namn) VALUES (:aktivitet)");
+    $svar = $stmt->execute(['aktivitet'=> $kontrolleraAktivitet]);
+
+    //kontrollera svaret
+    if ($svar===true) {
+        $retur=new stdClass();
+        $retur->id=$db->lastInsertId();
+        $retur->meddelande = ['spara lyckades', '1 post lades till'];
+        return new response($retur);
+    }else{
+        $return=new stdClass();
+        $retur->error=['bad request','något gick fel'];
+        return new response($retur, 400);
+
+    }
+
+    //skapa utdata
+
+    //returnera utdata
 }
 
 /**
