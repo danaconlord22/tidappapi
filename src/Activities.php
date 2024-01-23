@@ -22,10 +22,10 @@ function activities(Route $route, array $postData): Response {
             return sparaNyAktivitet((string) $postData["activity"]);
         }
         if (count($route->getParams()) === 1 && $route->getMethod() === RequestMethod::PUT) {
-            return uppdateraAktivitet( $route->getParams()[0],  $postData["activity"]);
+            return uppdateraAktivitet($route->getParams()[0], $postData["activity"]);
         }
         if (count($route->getParams()) === 1 && $route->getMethod() === RequestMethod::DELETE) {
-            return raderaAktivetet($route->getParams()[0]);
+            return raderaAktivitet($route->getParams()[0]);
         }
     } catch (Exception $exc) {
         return new Response($exc->getMessage(), 400);
@@ -39,20 +39,22 @@ function activities(Route $route, array $postData): Response {
  * @return Response
  */
 function hamtaAllaAktiviteter(): Response {
-    //koppla mot databas
-    $db=connectDb();
-    //hämta alla aktiviteter
-    $result = $db->query("select id, namn FROM aktiviteter");
+    // Koppla mot databas
+    $db = connectDb();
 
-    //skapa returnvärde
-    $retur=[];
+    // Hämta alla aktiviteter
+    $result = $db->query("SELECT id, namn FROM aktiviteter");
+
+    // Skapa returvärde
+    $retur = [];
     foreach ($result as $item) {
-        $post=new stdClass();
-        $post->id=$item['id'];
-        $post->name=$item['namn'];
-        $retur[]=$post;
+        $post = new stdClass();
+        $post->id = $item['id'];
+        $post->namn = $item['namn'];
+        $retur[] = $post;
     }
-    //skicka svar
+
+    // Skicka svar
     return new Response($retur);
 }
 
@@ -62,6 +64,33 @@ function hamtaAllaAktiviteter(): Response {
  * @return Response
  */
 function hamtaEnskildAktivitet(string $id): Response {
+    // Kontrollera inparameter
+    $kontrolleratId = filter_var($id, FILTER_VALIDATE_INT);
+
+    if ($kontrolleratId === false || $kontrolleratId < 1) {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Ogiltigt id'];
+        return new Response($retur, 400);
+    }
+
+    // Koppla mot databasen
+    $db = connectDb();
+
+    // Skicka fråga
+    $stmt = $db->prepare("SELECT id, namn FROM aktiviteter WHERE id=:id");
+    $result = $stmt->execute(['id' => $kontrolleratId]);
+
+    // Kontrollera svar
+    if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $retur = new stdClass();
+        $retur->id = $row['id'];
+        $retur->activity = $row['namn'];
+        return new Response($retur);
+    } else {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', "Angivet id ($kontrolleratId) finns inte"];
+        return new Response($retur, 400);
+    }
 }
 
 /**
@@ -70,31 +99,40 @@ function hamtaEnskildAktivitet(string $id): Response {
  * @return Response
  */
 function sparaNyAktivitet(string $aktivitet): Response {
-    //kontrollera indata - rensa bort onödiga tecken
-    $kontrolleraAktivitet=filter_var($aktivitet, FILTER_SANITIZE_ENCODED);
+    // Kontrollera indata - rensa bort onödiga tecken
+    $kontrolleradAktivitet = filter_var($aktivitet, FILTER_SANITIZE_SPECIAL_CHARS);
 
-    //koppla mot databas
-    $db=connectDb();
-    //exkevera frågan
-    $stmt=$db->prepare("INSERT INTO aktiviteter (namn) VALUES (:aktivitet)");
-    $svar = $stmt->execute(['aktivitet'=> $kontrolleraAktivitet]);
-
-    //kontrollera svaret
-    if ($svar===true) {
-        $retur=new stdClass();
-        $retur->id=$db->lastInsertId();
-        $retur->meddelande = ['spara lyckades', '1 post lades till'];
-        return new response($retur);
-    }else{
-        $return=new stdClass();
-        $retur->error=['bad request','något gick fel'];
-        return new response($retur, 400);
-
+    // Kontrollera att aktiviteten inte är tom!
+    if (trim($aktivitet) === '') {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Aktivitet får inte vara tom'];
+        return new Response($retur, 400);
     }
 
-    //skapa utdata
+    try {
+        // Koppla mot databasen
+        $db = connectDb();
 
-    //returnera utdata
+        // Exekvera frågan
+        $stmt = $db->prepare("INSERT INTO aktiviteter (namn) VALUES (:aktivitet)");
+        $svar = $stmt->execute(['aktivitet' => $kontrolleradAktivitet]);
+
+        // Kontrollera svaret och returnera svar
+        if ($svar === true) {
+            $retur = new stdClass();
+            $retur->id = $db->lastInsertId();
+            $retur->meddelande = ['Spara lyckades', '1 post lades till'];
+            return new Response($retur);
+        } else {
+            $retur = new stdClass();
+            $retur->error = ['Bad request', 'Något gick fel vid spara'];
+            return new Response($retur, 400);
+        }
+    } catch (Exception $e) {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Fel vid spara', $e->getMessage()];
+        return new Response($retur, 400);
+    }
 }
 
 /**
@@ -104,6 +142,43 @@ function sparaNyAktivitet(string $aktivitet): Response {
  * @return Response
  */
 function uppdateraAktivitet(string $id, string $aktivitet): Response {
+    // Kontrollera indata
+    $kontrolleradId = filter_var($id, FILTER_VALIDATE_INT);
+    $kontrolleradAktivitet = filter_var($aktivitet, FILTER_SANITIZE_SPECIAL_CHARS);
+    $kontrolleradAktivitet = trim($kontrolleradAktivitet);
+
+    if ($kontrolleradId === false || $kontrolleradId < 1 || $kontrolleradAktivitet === '') {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Felaktig indata till uppdatera aktivitet'];
+        return new Response($retur, 400);
+    }
+
+    try {
+        // Koppla databas
+        $db = connectDb();
+
+        // Förbereda fråga
+        $stmt = $db->prepare("UPDATE aktiviteter SET namn=:aktivitet WHERE id=:id");
+        $stmt->execute(['aktivitet' => $kontrolleradAktivitet, 'id' => $kontrolleradId]);
+
+        // Hantera svar
+        if ($stmt->rowCount() === 1) {
+            $retur = new stdClass();
+            $retur->result = true;
+            $retur->message = ['Uppdatera aktivitet lyckades', '1 rad uppdaterad'];
+            return new Response($retur);
+        } else {
+            $retur = new stdClass();
+            $retur->result = false;
+            $retur->message = ['Uppdatera aktivitet misslyckades', 'Ingen rad uppdaterad'];
+            return new Response($retur);
+        }
+    } catch (Exception $e) {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Något gick fel vid databasanropet'
+            , $e->getMessage()];
+        return new Response($retur, 400);
+    }
 }
 
 /**
@@ -111,5 +186,47 @@ function uppdateraAktivitet(string $id, string $aktivitet): Response {
  * @param string $id Id för posten som ska raderas
  * @return Response
  */
-function raderaAktivetet(string $id): Response {
+function raderaAktivitet(string $id): Response {
+    //kontrollera indata
+    $kontrolleratId = filter_var($id, FILTER_VALIDATE_INT);
+    if ($kontrolleratId === false || $kontrolleratId < 1) {
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Ogiltigt id'];
+        return new Response($retur, 400);
+    }
+
+
+    try{
+    //koppla databas
+    $db = connectDb();
+    $db->begintransaction();
+
+
+    //exekvera sql
+    $stmt = $db->prepare("DELETE FROM aktiviteter WHERE id=:id");
+    $stmt->execute(['id' => $kontrolleratId]);
+
+    //skicka svar
+    if ($stmt->rowCount() === 1) {
+        $retur = new stdClass();
+        $retur->result = true;
+        $retur->message = ['Radera lyckades', '1 rad raderad från databasen'];
+        $db->commit();
+    } else {
+        $retur = new stdClass();
+        $retur->result = false;
+        $retur->message = ['Radera misslyckades', 'Ingen rad raderad från databasen'];
+        $db->rollback();
+    }
+    return new Response($retur);
+    } catch (Exception $e) {
+        if ($db) {
+            $db->rollback();
+        }
+        $retur = new stdClass();
+        $retur->error = ['Bad request', 'Något gick fel vid databasanropet'
+            , $e->getMessage()];
+        return new Response($retur, 400);
+    }
+    
 }
