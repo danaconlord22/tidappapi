@@ -187,46 +187,38 @@ function uppdateraAktivitet(string $id, string $aktivitet): Response {
  * @return Response
  */
 function raderaAktivitet(string $id): Response {
-    //kontrollera indata
+    // Kontrollera indata
     $kontrolleratId = filter_var($id, FILTER_VALIDATE_INT);
     if ($kontrolleratId === false || $kontrolleratId < 1) {
         $retur = new stdClass();
-        $retur->error = ['Bad request', 'Ogiltigt id'];
+        $retur->error = ['Bad request', 'Felaktigt angivet id'];
         return new Response($retur, 400);
     }
 
+    try {
+        // Koppla databas
+        $db = connectDb();
+        
+        // Exekvera SQL
+        $stmt = $db->prepare("DELETE FROM aktiviteter WHERE id=:id");
+        $stmt->execute(['id' => $kontrolleratId]);
 
-    try{
-    //koppla databas
-    $db = connectDb();
-    $db->begintransaction();
-
-
-    //exekvera sql
-    $stmt = $db->prepare("DELETE FROM aktiviteter WHERE id=:id");
-    $stmt->execute(['id' => $kontrolleratId]);
-
-    //skicka svar
-    if ($stmt->rowCount() === 1) {
-        $retur = new stdClass();
-        $retur->result = true;
-        $retur->message = ['Radera lyckades', '1 rad raderad från databasen'];
-        $db->commit();
-    } else {
-        $retur = new stdClass();
-        $retur->result = false;
-        $retur->message = ['Radera misslyckades', 'Ingen rad raderad från databasen'];
-        $db->rollback();
-    }
-    return new Response($retur);
-    } catch (Exception $e) {
-        if ($db) {
-            $db->rollback();
+        // Skicka svar
+        if ($stmt->rowCount() === 1) {
+            $retur = new stdClass();
+            $retur->result = true;
+            $retur->message = ['Radera lyckades', "1 post raderades från databasen"];
+        } else {
+            $retur = new stdClass();
+            $retur->result = false;
+            $retur->message = ['Radera misslyckades', "Ingen post raderades från databasen"];
         }
+
+        return new Response($retur);
+    } catch (Exception $e) {
         $retur = new stdClass();
         $retur->error = ['Bad request', 'Något gick fel vid databasanropet'
             , $e->getMessage()];
         return new Response($retur, 400);
     }
-    
 }
